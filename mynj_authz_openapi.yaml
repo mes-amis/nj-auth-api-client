@@ -1,0 +1,406 @@
+---
+# openapi.yaml - myNJ Authorization API
+#
+# Confidential and proprietary to the State of New Jersey: not for redistribution
+#
+# 2024/10/04
+
+openapi: 3.0.3
+
+info:
+  title: myNJ authorization API
+  description: |
+    __This document is confidential and proprietary to the State of New Jersey.
+    Do not redistribute it outside your team, and do not post it in any
+    repository or allow it to be incorporated into any artificial intelligence
+    tool, LLM or other database.__
+
+    This API is used to manage authorizations for myNJ users to access an
+    agency's application.  It should be called from a user management module in
+    the application, to enable a privileged user to grant and revoke access for
+    other users.  The API allows the privileged user to avoid using the myNJ Role
+    Manager facility for granting and revoking.
+
+    The calling application __must__ restrict access to its user management module
+    so that only properly privileged users can use it to cause API calls to be made
+    to myNJ.
+    
+    The privileged user must have a myNJ account with the role being managed,
+    along with a valid user key (unique identifier) for that role.
+
+    The API is not designed or intended for batch operation.
+  version: 1.0.1
+
+servers:
+  - url: https://example.com/mynjapi/authz
+    description: test/ST
+
+paths:
+  /grant:
+    post:
+      description: >
+        Request that myNJ create an authorization to grant a role
+        and associated user key (unique identifier) to a person.
+        If the response object's Success property is true, myNJ will
+        have sent an email invitation to the specified address,
+        containing instructions and a one-time authorization code or
+        "PIN". In that case, the caller must store the response AuthID
+        for later revocation or updates.
+      parameters:
+        - $ref: '#/components/parameters/adminKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/grant'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/mynjAuth'
+        '400':
+          description: invalid request
+        '401':
+          description: invalid token or authz type
+        '403':
+          description: insufficient scope (privileges)
+        '500':
+          description: server error
+
+  /update:
+    post:
+      description: |
+        Update an existing authorization.  Any fields omitted from the
+        request will not be changed.  The AuthID may not be omitted
+        and cannot be changed.  Some other fields may not be able to
+        be changed, depending on the status of the authorization.
+
+        The user key, email and names fields can be changed if the invitation
+        has not been accepted.
+        
+        Only the user key (unique identifier) can be changed if the invitation
+        has been accepted.  The user key is the basis of single-signon, so its
+        value must match in the user's record in the application database
+        and in the user's myNJ account.
+
+        No fields can be changed if the invitation has been revoked.
+
+        It's not necessary or possible to update fields other than the user key
+        in an accepted authorization, even if the user's name or email address
+        have subsequently changed.  At that point the authorization fields
+        only serve as an audit record of where the invitation was sent and
+        don't need to match the user's current name or address.
+      parameters:
+        - $ref: '#/components/parameters/adminKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/update'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/mynjAuth'
+        '400':
+          description: invalid request
+        '401':
+          description: invalid token or authz type
+        '403':
+          description: insufficient scope (privileges)
+        '500':
+          description: server error
+
+  /revoke:
+    post:
+      description: >
+        Revoke an existing authorization.  This method must be called
+        when the user identified in the authorization should no longer
+        have access to your application.  Unaccepted invitations can
+        also be revoked.
+      parameters:
+        - $ref: '#/components/parameters/adminKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/revoke'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/mynjAuth'
+        '400':
+          description: invalid request
+        '401':
+          description: invalid token or authz type
+        '403':
+          description: insufficient scope (privileges)
+        '500':
+          description: server error
+
+  /status/{authID}:
+    get:
+      description: >
+        Get the status and other attributes of an existing authorization.
+      parameters:
+        - $ref: '#/components/parameters/adminKey'
+        - $ref: '#/components/parameters/authID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/mynjAuthStatus'
+        '400':
+          description: invalid request
+        '401':
+          description: invalid token or authz type
+        '403':
+          description: insufficient scope (privileges)
+        '500':
+          description: server error
+
+security:
+  - api_key: []
+
+components:
+  schemas:
+    grant:
+      description: Body of a grant request.
+      type: object
+      properties:
+        RoleName:
+          type: string
+          description: Role name assigned by myNJ for this service; case-sensitive.
+        UserKey:
+          type: string
+          description: Unique identifier for the user in the agency app's datastore.
+          pattern: ^[A-Za-z][A-Za-z0-9 ,.@_:;'\(\)><-]{0,49}$
+        FirstName:
+          type: string
+          description: User's first name.
+          pattern: ^[A-Za-z][A-Za-z0-9 :,.'_-]{0,23}$
+        LastName:
+          type: string
+          description: User's last name.
+          pattern: ^[A-Za-z][A-Za-z0-9 :,.'_-]{0,24}$
+        Email:
+          type: string
+          description: User's email address.
+          pattern: ^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)+$
+        BusinessName:
+          type: string
+          description: Organization or company the user represents.
+          pattern: ^[A-Za-z0-9\.@][A-Za-z0-9 ,\.\'/+@&()-]{0,49}$
+      required:
+        - RoleName
+        - UserKey
+        - FirstName
+        - LastName
+        - Email
+        - BusinessName
+
+    update:
+      description: Body of an update request.
+      type: object
+      properties:
+        AuthID:
+          type: string
+          description: Identifier for the authorization record in myNJ, returned by a prior call to /grant.
+        UserKey:
+          type: string
+          description: Unique identifier for the user in the agency app's datastore.
+          pattern: ^[A-Za-z][A-Za-z0-9 ,.@_:;'\(\)><-]{0,49}$
+        FirstName:
+          type: string
+          description: User's first name.
+          pattern: ^[A-Za-z][A-Za-z0-9 :,.'_-]{0,24}$
+        LastName:
+          type: string
+          description: User's last name.
+          pattern: ^[A-Za-z][A-Za-z0-9 :,.'_-]{0,24}$
+        Email:
+          type: string
+          description: User's email address.
+          pattern: ^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)+$
+        BusinessName:
+          type: string
+          description: Organization or company the user represents.
+          pattern: ^[A-Za-z0-9\.@][A-Za-z0-9 ,\.\-'/+@&()]{0,49}$
+      required:
+        - AuthID
+
+    revoke:
+      description: Body of a revoke request.
+      type: object
+      properties:
+        AuthID:
+          type: string
+          description: Identifier for the authorization record in myNJ, returned by a prior call to /grant.
+      required:
+        - AuthID
+
+    mynjAuth:
+      description: Response body.
+      type: object
+      properties:
+        Success:
+          type: boolean
+          description: true if request succeeded, false if it failed.
+        AuthID:
+          type: string
+          description: >
+            Identifier for the authorization record in myNJ.  Empty
+            if Success is false.
+        Warnings:
+          type: array
+          items:
+            type: string
+        Errors:
+          type: array
+          items:
+            type: string
+          example:
+            - invalid authz type
+            - invalid content type
+            - invalid path
+            - invalid request body
+            - invalid API key
+            - P0002 At least one parameter had an invalid value or length
+            - Invalid admin key
+            - Invalid format AuthID
+            - Both first and last names are required when updating contact's name
+            - Missing business name
+            - Missing email
+            - Missing first name
+            - Missing last name
+            - Missing userKey
+            - E1001 User is not allowed to manage this role
+            - E1017 This would duplicate an existing authorization
+            - E1022 Contact system administrator
+            - E1024 Invalid auth ID
+            - E1028 Cannot update revoked record
+            - E1048 Cannot update accepted record
+            - E1055 Your application is not authorized to use this API, contact myNJ manager
+            - E1058 Request rate too high
+            - E1059 This would duplicate an existing key
+            - E2108 This authorization was revoked previously and can't be changed.
+            - E2113 Failed to send authorization.
+            - E2199 Error: (various attribute messages)
+
+    mynjAuthStatus:
+      description: Response body.
+      type: object
+      properties:
+        Success:
+          type: boolean
+          description: true if request succeeded, false if it failed.
+        AuthID:
+          type: string
+          description: Identifier for the authorization record in myNJ.
+        Warnings:
+          type: array
+          items:
+            type: string
+        Errors:
+          type: array
+          items:
+            type: string
+          example:
+            - invalid authz type
+            - invalid content type
+            - invalid path
+            - invalid API key
+            - Invalid admin key
+            - Invalid format AuthID
+            - E1001 User is not allowed to manage this role
+            - E1022 Contact system administrator
+            - E1024 Invalid auth ID
+            - E1055 Your application is not authorized to use this API, contact myNJ manager
+            - E1058 Request rate too high
+        UserKey:
+          type: string
+          description: Unique identifier for the user in the agency app's datastore.
+        ContactName:
+          type: string
+          description: >
+            First and last name for the user from the authorization record.  This
+            does not necessarily match the user's name in their myNJ account.
+        Email:
+          type: string
+          description: >
+            Email address to which the authorization invitation was sent.  This
+            does not necessarily match the email address in the user's myNJ account.
+        BusinessName:
+          type: string
+          description: >
+            Organization or company the user represented when the authorization was granted.
+        Status:
+          enum:
+            - 'Accepted'
+            - 'Not accepted'
+            - 'Revoked'
+          description: >
+            'Accepted' means a user accepted their invitation and added the
+            role and key to their myNJ account.  'Not accepted' means the
+            invitation is pending action by the user.  'Revoked' means the
+            authorization is no longer usable, and if it was accepted before
+            being revoked, the role and key have been removed from the user's
+            account.
+        DateCreated:
+          type: string
+          description: >
+            The date and time the authorization was created, in Eastern Time,
+            formatted as YYYYMMDDTHHmmSS.
+        DateUpdated:
+          type: string
+          description: >
+            The date and time the authorization was created, in Eastern Time,
+            formatted as YYYYMMDDTHHmmSS.
+        AdminName:
+          type: string
+          description: >
+            First and last name of the admin who created or most recently
+            updated the authorization.
+
+  parameters:
+    adminKey:
+      name: MyNJ-AdminUserKey
+      in: header
+      description: >
+        UserKey (unique identifier) in the agency app's datastore for the
+        administrator (the person whose actions in the app's user
+        administration module triggered this call to the myNJ API).
+      required: true
+      schema:
+        type: string
+        pattern: ^[A-Za-z][A-Za-z0-9 ,.@_:;'\(\)><-]{0,49}$
+    authID:
+      name: authID
+      in: path
+      description: >
+        ID of an authorization record returned by a prior call to grant.
+      required: true
+      schema:
+        type: integer
+        format: int32
+
+  securitySchemes:
+    api_key:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Value is "Bearer {apikey}"
+
+...
